@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>四角に切れ🧩 - スマホ対応版</title>
+    <style>
+        body { 
+            font-family: sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            background: #eef2f3; 
+            margin: 0;
+            touch-action: manipulation;
+        }
+        .header { margin: 15px; text-align: center; }
+        h2 { font-size: 1.2rem; margin: 5px; }
+        
+        #game-container { 
+            position: relative; 
+            user-select: none; 
+            background: white; 
+            padding: 0; 
+            border: 5px solid white; 
+            border-radius: 8px; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            touch-action: none; /* スマホでのスクロール干渉を防止 */
+        }
+        .grid { display: grid; border: 2px solid #2c3e50; }
+        /* マス目のサイズをスマホ向けに少し調整（画面幅に合わせて可変） */
+        .cell { 
+            width: 11vw; height: 11vw; 
+            max-width: 45px; max-height: 45px;
+            border: 0.5px solid #eee; 
+            box-sizing: border-box; 
+            display: flex; align-items: center; justify-content: center; 
+            font-weight: bold; font-size: 1.2rem; color: #2c3e50; 
+        }
+        .rect { position: absolute; border: 3px solid #3498db; background: rgba(52, 152, 219, 0.2); z-index: 2; box-sizing: border-box; border-radius: 4px; pointer-events: auto; }
+        .rect.valid { border-color: #27ae60; background: rgba(39, 174, 96, 0.3); }
+        .answer-rect { position: absolute; border: 2px dotted #ff4757; background: transparent; z-index: 1; pointer-events: none; box-sizing: border-box; }
+        
+        .controls { margin: 15px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+        button { 
+            padding: 10px 20px; cursor: pointer; background: #2c3e50; color: white; 
+            border: none; border-radius: 50px; font-size: 0.9rem; font-weight: bold; 
+        }
+        button.secondary { background: #7f8c8d; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h2>四角に切れ🧩</h2>
+    <p style="font-size: 0.8rem; margin: 0;">2, 4, 6, 8のかけ算練習</p>
+</div>
+
+<div class="controls">
+    <button onclick="resetGame()">新しくつくる</button>
+    <button class="secondary" onclick="toggleAnswer()">正解表示</button>
+</div>
+
+<div id="game-container">
+    <div id="grid" class="grid"></div>
+    <div id="rects-layer"></div>
+    <div id="answer-layer"></div>
+</div>
+
+<p style="font-size: 0.7rem; color: #666; margin-top: 10px;">
+    ※枠を消すときは枠をすばやく2回タップしてください。
+</p>
+
+<script>
+const BOARD_SIZE = 8;
+let CELL_SIZE = 0; // init時に動的に取得
+
+let rawData = [];
+let puzzleData = [];
+let isDragging = false;
+let startCell = null;
+let currentRect = null;
+let showAnswer = false;
+
+function generatePuzzle() {
+    let board, data, success;
+    for (let attempt = 0; attempt < 500; attempt++) {
+        board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(false));
+        data = []; success = true;
+        for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+                if (board[r][c]) continue;
+                let shuffledAreas = [8, 6, 6, 4, 4, 4, 2].sort(() => Math.random() - 0.5);
+                let choice = null;
+                for (let area of shuffledAreas) {
+                    let possibleShapes = [];
+                    for (let h = 1; h <= area; h++) {
+                        if (area % h === 0) {
+                            let w = area / h;
+                            if (h > 4 || w > 4) continue;
+                            if (r + h <= BOARD_SIZE && c + w <= BOARD_SIZE) {
+                                let fit = true;
+                                for (let i = 0; i < h; i++) {
+                                    for (let j = 0; j < w; j++) if (board[r+i][c+j]) fit = false;
+                                }
+                                if (fit) possibleShapes.push({h, w, area});
+                            }
+                        }
+                    }
+                    if (possibleShapes.length > 0) {
+                        choice = possibleShapes[Math.floor(Math.random() * possibleShapes.length)];
+                        break;
+                    }
+                }
+                if (choice) {
+                    for (let i = 0; i < choice.h; i++) for (let j = 0; j < choice.w; j++) board[r+i][c+j] = true;
+                    data.push({r, c, h: choice.h, w: choice.w, area: choice.area});
+                } else { success = false; break; }
+            }
+            if (!success) break;
+        }
+        if (success) {
+            rawData = data;
+            return data.map(d => [d.r + Math.floor((d.h - 1) / 2), d.c + Math.floor((d.w - 1) / 2), d.area]);
+        }
+    }
+}
+
+function init() {
+    puzzleData = generatePuzzle();
+    const grid = document.getElementById('grid');
+    grid.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+    grid.innerHTML = '';
+    document.getElementById('rects-layer').innerHTML = '';
+    document.getElementById('answer-layer').innerHTML = '';
+    showAnswer = false;
+    
+    for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            const t = puzzleData.find(d => d[0] === r && d[1] === c);
+            if (t) cell.textContent = t[2];
+            
+            // マウスイベント
+            cell.onmousedown = (e) => startDrag(r, c);
+            cell.onmouseenter = (e) => { if(isDragging) updateDrag(r, c); };
+            
+            grid.appendChild(cell);
+        }
+    }
+    // 実際のセルサイズを取得（レスポンシブ対応のため）
+    CELL_SIZE = document.querySelector('.cell').offsetWidth;
+}
+
+// タッチ座標からセルの行列を取得する関数
+function getCellFromTouch(e) {
+    const touch = e.touches[0];
+    const gridRect = document.getElementById('grid').getBoundingClientRect();
+    const c = Math.floor((touch.clientX - gridRect.left) / CELL_SIZE);
+    const r = Math.floor((touch.clientY - gridRect.top) / CELL_SIZE);
+    if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) return { r, c };
+    return null;
+}
+
+// スマホ用タッチイベントの設定
+const container = document.getElementById('game-container');
+container.addEventListener('touchstart', (e) => {
+    const pos = getCellFromTouch(e);
+    if (pos) startDrag(pos.r, pos.c);
+    e.preventDefault();
+}, { passive: false });
+
+container.addEventListener('touchmove', (e) => {
+    const pos = getCellFromTouch(e);
+    if (isDragging && pos) updateDrag(pos.r, pos.c);
+    e.preventDefault();
+}, { passive: false });
+
+container.addEventListener('touchend', (e) => {
+    endDrag();
+    e.preventDefault();
+}, { passive: false });
+
+function toggleAnswer() {
+    const layer = document.getElementById('answer-layer');
+    if (!showAnswer) {
+        rawData.forEach(d => {
+            const el = document.createElement('div');
+            el.className = 'answer-rect';
+            el.style.top = (d.r * CELL_SIZE + 2) + 'px';
+            el.style.left = (d.c * CELL_SIZE + 2) + 'px';
+            el.style.height = (d.h * CELL_SIZE) + 'px';
+            el.style.width = (d.w * CELL_SIZE) + 'px';
+            layer.appendChild(el);
+        });
+        showAnswer = true;
+    } else { layer.innerHTML = ''; showAnswer = false; }
+}
+
+function startDrag(r, c) {
+    isDragging = true; startCell = { r, c };
+    currentRect = document.createElement('div');
+    currentRect.className = 'rect';
+    document.getElementById('rects-layer').appendChild(currentRect);
+    drawRect(currentRect, r, c, r, c);
+}
+function updateDrag(r, c) { drawRect(currentRect, startCell.r, startCell.c, r, c); }
+function drawRect(el, r1, c1, r2, c2) {
+    const minR = Math.min(r1, r2), maxR = Math.max(r1, r2);
+    const minC = Math.min(c1, c2), maxC = Math.max(c1, c2);
+    el.style.top = (minR * CELL_SIZE + 2) + 'px';
+    el.style.left = (minC * CELL_SIZE + 2) + 'px';
+    el.style.height = ((maxR - minR + 1) * CELL_SIZE) + 'px';
+    el.style.width = ((maxC - minC + 1) * CELL_SIZE) + 'px';
+    el.dataset.bounds = JSON.stringify({minR, maxR, minC, maxC});
+}
+function endDrag() {
+    if (!isDragging) return; isDragging = false;
+    const b = JSON.parse(currentRect.dataset.bounds);
+    const area = (b.maxR - b.minR + 1) * (b.maxC - b.minC + 1);
+    const nums = puzzleData.filter(d => d[0] >= b.minR && d[0] <= b.maxR && d[1] >= b.minC && d[1] <= b.maxC);
+    if (nums.length === 1 && nums[0][2] === area) {
+        currentRect.classList.add('valid');
+        // ダブルタップ/ダブルクリックで削除
+        currentRect.addEventListener('dblclick', function() { this.remove(); checkWin(); });
+        checkWin();
+    } else { currentRect.remove(); }
+}
+function checkWin() {
+    const active = document.querySelectorAll('.rect.valid');
+    let total = 0;
+    active.forEach(r => {
+        const b = JSON.parse(r.dataset.bounds);
+        total += (b.maxR - b.minR + 1) * (b.maxC - b.minC + 1);
+    });
+    if (total === BOARD_SIZE * BOARD_SIZE) setTimeout(() => alert('全問正解！'), 100);
+}
+window.onmouseup = endDrag;
+function resetGame() { init(); }
+init();
+</script>
+</body>
+</html>
