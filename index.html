@@ -3,49 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>四角に切れ🧩 - スマホ対応版</title>
+    <title>四角に切れ🧩 - スマホ完全対応版</title>
     <style>
         body { 
-            font-family: sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            background: #eef2f3; 
-            margin: 0;
-            touch-action: manipulation;
+            font-family: sans-serif; display: flex; flex-direction: column; align-items: center; 
+            background: #eef2f3; margin: 0; touch-action: manipulation;
         }
         .header { margin: 15px; text-align: center; }
         h2 { font-size: 1.2rem; margin: 5px; }
         
         #game-container { 
-            position: relative; 
-            user-select: none; 
-            background: white; 
-            padding: 0; 
-            border: 5px solid white; 
-            border-radius: 8px; 
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            touch-action: none; /* スマホでのスクロール干渉を防止 */
+            position: relative; user-select: none; background: white; padding: 0; 
+            border: 5px solid white; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            touch-action: none; 
         }
         .grid { display: grid; border: 2px solid #2c3e50; }
-        /* マス目のサイズをスマホ向けに少し調整（画面幅に合わせて可変） */
         .cell { 
-            width: 11vw; height: 11vw; 
-            max-width: 45px; max-height: 45px;
-            border: 0.5px solid #eee; 
-            box-sizing: border-box; 
+            width: 11vw; height: 11vw; max-width: 45px; max-height: 45px;
+            border: 0.5px solid #eee; box-sizing: border-box; 
             display: flex; align-items: center; justify-content: center; 
             font-weight: bold; font-size: 1.2rem; color: #2c3e50; 
         }
-        .rect { position: absolute; border: 3px solid #3498db; background: rgba(52, 152, 219, 0.2); z-index: 2; box-sizing: border-box; border-radius: 4px; pointer-events: auto; }
+        .rect { position: absolute; border: 3px solid #3498db; background: rgba(52, 152, 219, 0.2); z-index: 2; box-sizing: border-box; border-radius: 4px; }
         .rect.valid { border-color: #27ae60; background: rgba(39, 174, 96, 0.3); }
-        .answer-rect { position: absolute; border: 2px dotted #ff4757; background: transparent; z-index: 1; pointer-events: none; box-sizing: border-box; }
-        
+        /* 削除モード中の見た目 */
+        .delete-mode .rect.valid { border-style: dashed; opacity: 0.7; }
+
         .controls { margin: 15px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
         button { 
-            padding: 10px 20px; cursor: pointer; background: #2c3e50; color: white; 
+            padding: 10px 18px; cursor: pointer; background: #2c3e50; color: white; 
             border: none; border-radius: 50px; font-size: 0.9rem; font-weight: bold; 
         }
+        button.delete-btn { background: #e74c3c; }
+        button.active { ring: 3px solid #ff9f43; background: #ff9f43; }
         button.secondary { background: #7f8c8d; }
     </style>
 </head>
@@ -58,6 +48,7 @@
 
 <div class="controls">
     <button onclick="resetGame()">新しくつくる</button>
+    <button id="delete-toggle" class="delete-btn" onclick="toggleDeleteMode()">枠を消すモード</button>
     <button class="secondary" onclick="toggleAnswer()">正解表示</button>
 </div>
 
@@ -67,13 +58,14 @@
     <div id="answer-layer"></div>
 </div>
 
-<p style="font-size: 0.7rem; color: #666; margin-top: 10px;">
-    ※枠を消すときは枠をすばやく2回タップしてください。
+<p id="mode-hint" style="font-size: 0.8rem; color: #e74c3c; margin-top: 10px; font-weight: bold;">
+    【今は：かくモード】
 </p>
 
 <script>
 const BOARD_SIZE = 8;
-let CELL_SIZE = 0; // init時に動的に取得
+let CELL_SIZE = 0;
+let isDeleteMode = false;
 
 let rawData = [];
 let puzzleData = [];
@@ -134,6 +126,8 @@ function init() {
     document.getElementById('rects-layer').innerHTML = '';
     document.getElementById('answer-layer').innerHTML = '';
     showAnswer = false;
+    isDeleteMode = false;
+    updateModeUI();
     
     for (let r = 0; r < BOARD_SIZE; r++) {
         for (let c = 0; c < BOARD_SIZE; c++) {
@@ -141,19 +135,36 @@ function init() {
             cell.className = 'cell';
             const t = puzzleData.find(d => d[0] === r && d[1] === c);
             if (t) cell.textContent = t[2];
-            
-            // マウスイベント
-            cell.onmousedown = (e) => startDrag(r, c);
-            cell.onmouseenter = (e) => { if(isDragging) updateDrag(r, c); };
-            
             grid.appendChild(cell);
         }
     }
-    // 実際のセルサイズを取得（レスポンシブ対応のため）
     CELL_SIZE = document.querySelector('.cell').offsetWidth;
 }
 
-// タッチ座標からセルの行列を取得する関数
+// モード切り替え
+function toggleDeleteMode() {
+    isDeleteMode = !isDeleteMode;
+    updateModeUI();
+}
+
+function updateModeUI() {
+    const btn = document.getElementById('delete-toggle');
+    const hint = document.getElementById('mode-hint');
+    const container = document.getElementById('game-container');
+    if (isDeleteMode) {
+        btn.classList.add('active');
+        btn.textContent = 'かくモードに戻る';
+        hint.textContent = '【今は：消すモード】枠をタップして消してね';
+        container.classList.add('delete-mode');
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = '枠を消すモード';
+        hint.textContent = '【今は：かくモード】';
+        container.classList.remove('delete-mode');
+    }
+}
+
+// タッチ座標取得
 function getCellFromTouch(e) {
     const touch = e.touches[0];
     const gridRect = document.getElementById('grid').getBoundingClientRect();
@@ -163,41 +174,38 @@ function getCellFromTouch(e) {
     return null;
 }
 
-// スマホ用タッチイベントの設定
 const container = document.getElementById('game-container');
+
+// タッチ開始
 container.addEventListener('touchstart', (e) => {
+    if (isDeleteMode) {
+        // 消すモード：重なっている枠を探して削除
+        const touch = e.touches[0];
+        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (el && el.classList.contains('rect')) {
+            el.remove();
+            checkWin();
+        }
+        return;
+    }
     const pos = getCellFromTouch(e);
     if (pos) startDrag(pos.r, pos.c);
     e.preventDefault();
 }, { passive: false });
 
 container.addEventListener('touchmove', (e) => {
+    if (isDeleteMode) return;
     const pos = getCellFromTouch(e);
     if (isDragging && pos) updateDrag(pos.r, pos.c);
     e.preventDefault();
 }, { passive: false });
 
 container.addEventListener('touchend', (e) => {
-    endDrag();
+    if (!isDeleteMode) endDrag();
     e.preventDefault();
 }, { passive: false });
 
-function toggleAnswer() {
-    const layer = document.getElementById('answer-layer');
-    if (!showAnswer) {
-        rawData.forEach(d => {
-            const el = document.createElement('div');
-            el.className = 'answer-rect';
-            el.style.top = (d.r * CELL_SIZE + 2) + 'px';
-            el.style.left = (d.c * CELL_SIZE + 2) + 'px';
-            el.style.height = (d.h * CELL_SIZE) + 'px';
-            el.style.width = (d.w * CELL_SIZE) + 'px';
-            layer.appendChild(el);
-        });
-        showAnswer = true;
-    } else { layer.innerHTML = ''; showAnswer = false; }
-}
-
+// PC用のクリック削除も維持（一応）
 function startDrag(r, c) {
     isDragging = true; startCell = { r, c };
     currentRect = document.createElement('div');
@@ -222,8 +230,6 @@ function endDrag() {
     const nums = puzzleData.filter(d => d[0] >= b.minR && d[0] <= b.maxR && d[1] >= b.minC && d[1] <= b.maxC);
     if (nums.length === 1 && nums[0][2] === area) {
         currentRect.classList.add('valid');
-        // ダブルタップ/ダブルクリックで削除
-        currentRect.addEventListener('dblclick', function() { this.remove(); checkWin(); });
         checkWin();
     } else { currentRect.remove(); }
 }
@@ -236,7 +242,21 @@ function checkWin() {
     });
     if (total === BOARD_SIZE * BOARD_SIZE) setTimeout(() => alert('全問正解！'), 100);
 }
-window.onmouseup = endDrag;
+function toggleAnswer() {
+    const layer = document.getElementById('answer-layer');
+    if (!showAnswer) {
+        rawData.forEach(d => {
+            const el = document.createElement('div');
+            el.className = 'answer-rect';
+            el.style.top = (d.r * CELL_SIZE + 2) + 'px';
+            el.style.left = (d.c * CELL_SIZE + 2) + 'px';
+            el.style.height = (d.h * CELL_SIZE) + 'px';
+            el.style.width = (d.w * CELL_SIZE) + 'px';
+            layer.appendChild(el);
+        });
+        showAnswer = true;
+    } else { layer.innerHTML = ''; showAnswer = false; }
+}
 function resetGame() { init(); }
 init();
 </script>
